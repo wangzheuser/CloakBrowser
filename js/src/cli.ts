@@ -4,20 +4,41 @@
  *
  * Usage:
  *   npx cloakbrowser install      # Download binary (with progress)
- *   npx cloakbrowser info         # Show binary version, path, platform
+ *   npx cloakbrowser info         # Environment + binary diagnostics
+ *   npx cloakbrowser doctor       # Alias for info
  *   npx cloakbrowser update       # Check for and download newer binary
  *   npx cloakbrowser clear-cache  # Remove cached binaries
  */
 
-import { ensureBinary, binaryInfo, checkForUpdate, clearCache } from "./download.js";
-import { getLocalBinaryOverride, getCacheDir } from "./config.js";
+import { ensureBinary, checkForUpdate, clearCache } from "./download.js";
+import {
+  getLocalBinaryOverride,
+  getCacheDir,
+  getPlatformTag,
+  getBinaryPath,
+  getBinaryDir,
+  getEffectiveVersion,
+  normalizeRequestedVersion,
+  CHROMIUM_VERSION,
+} from "./config.js";
+import { windowsFontsPresent } from "./fonts.js";
+import { resolveLicenseKey, validateLicense, getProLatestVersion, type LicenseInfo } from "./license.js";
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const UPGRADE_HINT =
+  "→ Add a license key for the latest Pro binary: https://cloakbrowser.dev";
 
 const USAGE = `Usage: cloakbrowser <command>
 
 Commands:
   install      Download the Chromium binary
-  info         Show binary version, path, and platform
+  info         Environment + binary diagnostics (--quick, --json)
+  doctor       Alias for info
   update       Check for and download a newer binary
   clear-cache  Remove all cached binaries`;
 
@@ -26,17 +47,246 @@ async function cmdInstall(): Promise<void> {
   console.log(binaryPath);
 }
 
-function cmdInfo(): void {
-  const info = binaryInfo();
-  const override = getLocalBinaryOverride();
+function moduleAvailable(name: string): boolean {
+  try {
+    createRequire(import.meta.url).resolve(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-  console.log(`Version:   ${info.version}`);
-  console.log(`Platform:  ${info.platform}`);
-  console.log(`Binary:    ${info.binaryPath}`);
-  console.log(`Installed: ${info.installed}`);
-  console.log(`Cache:     ${info.cacheDir}`);
+/** Launch `<binary> --version` to prove it runs. */
+function binaryVersion(binaryPath: string): { ok: boolean; version: string; error: string } {
+  try {
+    const out = execFileSync(binaryPath, ["--version"], {
+      encoding: "utf8",
+      timeout: 10000,
+      killSignal: "SIGKILL",
+    });
+    return { ok: true, version: out.trim(), error: "" };
+  } catch (err) {
+    const e = err as { stderr?: Buffer | string; message?: string };
+    const stderr = e.stderr ? e.stderr.toString().trim() : "";
+    return { ok: false, version: "", error: stderr || e.message || String(err) };
+  }
+}
+
+/** Linux-only: ldd the binary and return missing .so names. */
+function missingSharedLibs(binaryPath: string): string[] {
+  if (os.platform() !== "linux") return [];
+  let out: string;
+  try {
+    // -- so a path starting with - isn't read as a flag by ldd
+    out = execFileSync("ldd", ["--", binaryPath], {
+      encoding: "utf8",
+      timeout: 10000,
+      killSignal: "SIGKILL",
+    });
+  } catch (err) {
+    // ldd commonly exits non-zero when libraries are missing; execFileSync throws
+    // but the listing we need is on err.stdout. Fall back to it rather than drop it.
+    const e = err as { stdout?: Buffer | string };
+    if (!e.stdout) return [];
+    out = e.stdout.toString();
+  }
+  return out
+    .split("\n")
+    .filter((l) => l.includes("=> not found"))
+    .map((l) => l.split("=>")[0].trim());
+}
+
+/** Resolve + validate the license the way ensureBinary does. */
+async function resolveLicense(): Promise<{ license: Record<string, unknown>; entitledPro: boolean }> {
+  let key = resolveLicenseKey();
+  // ensureBinary disables Pro routing when a custom download URL is set, so the
+  // diagnostic must report free too (matches download.ts).
+  if (process.env.CLOAKBROWSER_DOWNLOAD_URL) key = undefined;
+  if (!key) return { license: { tier: "free" }, entitledPro: false };
+  try {
+    const lic: LicenseInfo | null = await validateLicense(key);
+    if (lic === null) return { license: { tier: "unknown", error: "could not validate" }, entitledPro: false };
+    if (lic.valid) return { license: { tier: lic.plan, valid: true, expires: lic.expires }, entitledPro: true };
+    return { license: { tier: "invalid", valid: false }, entitledPro: false };
+  } catch (err) {
+    return { license: { tier: "unknown", error: (err as Error).message }, entitledPro: false };
+  }
+}
+
+/** Describe the binary ensureBinary would actually launch (no download). */
+async function effectiveBinary(entitledPro: boolean): Promise<Record<string, unknown>> {
+  const override = getLocalBinaryOverride();
   if (override) {
-    console.log(`Override:  ${override} (CLOAKBROWSER_BINARY_PATH)`);
+    return {
+      version: null,
+      tier: "override",
+      bundled_version: CHROMIUM_VERSION,
+      path: override,
+      installed: fs.existsSync(override),
+      cache_dir: null,
+      override,
+    };
+  }
+  const requested = normalizeRequestedVersion();
+  let version: string;
+  if (requested) {
+    version = requested;
+  } else if (entitledPro) {
+    // Mirror ensureBinary: a Pro launch resolves the latest Pro version over the
+    // network. Without this a fresh Pro user (no cached marker) would see the free
+    // base version paired with the -pro path, which never ships.
+    version = (await getProLatestVersion()) || getEffectiveVersion(true);
+  } else {
+    version = getEffectiveVersion(false);
+  }
+  const binPath = getBinaryPath(version, entitledPro);
+  return {
+    version,
+    tier: entitledPro ? "pro" : "free",
+    bundled_version: CHROMIUM_VERSION,
+    path: binPath,
+    installed: fs.existsSync(binPath),
+    cache_dir: getBinaryDir(version, entitledPro),
+    override: null,
+  };
+}
+
+export async function collectDiagnostics(quick: boolean): Promise<Record<string, unknown>> {
+  const diag: Record<string, any> = {};
+
+  diag.environment = {
+    node: process.version,
+    os: os.type(),
+    arch: os.arch(),
+  };
+
+  // Resolve the license up front — it decides which binary actually launches
+  // (ensureBinary only uses the Pro binary when a key validates).
+  const { license, entitledPro } = await resolveLicense();
+
+  try {
+    diag.environment.platform_tag = getPlatformTag();
+  } catch (err) {
+    diag.environment.platform_tag = `unavailable (${(err as Error).message})`;
+  }
+
+  try {
+    diag.binary = await effectiveBinary(entitledPro);
+  } catch (err) {
+    diag.binary = { error: (err as Error).message };
+  }
+
+  // Launch test (skipped by --quick or when the binary is not installed).
+  const binPath: string | undefined = diag.binary.path;
+  const installed: boolean | undefined = diag.binary.installed;
+  if (quick) {
+    diag.launch = { tested: false, reason: "skipped (--quick)" };
+  } else if (!binPath || !(installed || fs.existsSync(binPath))) {
+    diag.launch = { tested: false, reason: "binary not installed" };
+  } else {
+    const { ok, version, error } = binaryVersion(binPath);
+    diag.launch = { tested: true, ok, version, error };
+    if (!ok) diag.launch.missing_libs = missingSharedLibs(binPath);
+  }
+
+  // Windows-font probe — only meaningful on a Linux host spoofing Windows.
+  // Omitted entirely off Linux, where it carries no signal.
+  if (os.platform() === "linux") {
+    const present = windowsFontsPresent();
+    diag.fonts = {
+      windows_fonts: present === true ? "ok" : present === false ? "missing" : "unknown",
+    };
+  }
+
+  diag.license = license;
+
+  // GeoIP DB — presence only, never downloads.
+  const dbPath = path.join(getCacheDir(), "geoip", "GeoLite2-City.mmdb");
+  diag.geoip = { db_present: fs.existsSync(dbPath), path: dbPath };
+
+  // Optional peer deps.
+  diag.modules = {
+    "playwright-core": moduleAvailable("playwright-core"),
+    "puppeteer-core": moduleAvailable("puppeteer-core"),
+    "mmdb-lib": moduleAvailable("mmdb-lib"),
+  };
+
+  return diag;
+}
+
+function printDiagnostics(diag: Record<string, any>): void {
+  const env = diag.environment;
+  console.log("CloakBrowser diagnostics");
+  console.log(`Node:      ${env.node}`);
+  console.log(`OS:        ${env.os} ${env.arch}`);
+  console.log(`Platform:  ${env.platform_tag ?? "unknown"}`);
+
+  const binary = diag.binary;
+  if (binary.error) {
+    console.log(`Binary:    unavailable (${binary.error})`);
+  } else {
+    if (binary.tier === "override") {
+      console.log("Version:   set via CLOAKBROWSER_BINARY_PATH (see Launch line)");
+    } else {
+      console.log(`Version:   ${binary.version} (${binary.tier})`);
+    }
+    console.log(`Binary:    ${binary.path}`);
+    console.log(`Installed: ${binary.installed}`);
+    if (binary.cache_dir) console.log(`Cache:     ${binary.cache_dir}`);
+    if (binary.override) {
+      console.log(`Override:  ${binary.override} (CLOAKBROWSER_BINARY_PATH)`);
+    }
+  }
+
+  const launch = diag.launch;
+  if (!launch.tested) {
+    console.log(`Launch:    ${launch.reason}`);
+  } else if (launch.ok) {
+    console.log(`Launch:    ✓ ${launch.version}`);
+  } else {
+    console.log(`Launch:    ✗ failed — ${launch.error}`);
+    for (const lib of launch.missing_libs ?? []) {
+      console.log(`           missing: ${lib}`);
+    }
+    if ((launch.missing_libs ?? []).length) {
+      console.log("           → install the missing system libraries (e.g. apt-get install)");
+    }
+  }
+
+  if (diag.fonts) {
+    const fonts = diag.fonts.windows_fonts;
+    console.log(`Win fonts: ${fonts}`);
+    if (fonts === "missing") {
+      console.log("           → spoofing Windows on Linux without Windows fonts; install msttcorefonts");
+    }
+  }
+
+  const lic = diag.license;
+  if (lic.tier === "free") {
+    console.log("License:   Free");
+    console.log(`           ${UPGRADE_HINT}`);
+  } else if (lic.error) {
+    console.log(`License:   ${lic.tier} (${lic.error})`);
+  } else {
+    console.log(`License:   ${lic.tier}`);
+  }
+
+  console.log(`GeoIP DB:  ${diag.geoip.db_present ? "present" : "not downloaded (optional)"}`);
+
+  console.log("Modules:");
+  for (const [label, available] of Object.entries(diag.modules)) {
+    console.log(`  ${label}: ${available ? "ok" : "missing"}`);
+  }
+}
+
+async function cmdInfo(args: string[]): Promise<void> {
+  const quick = args.includes("--quick") || args.includes("--no-launch");
+  const asJson = args.includes("--json");
+  const diag = await collectDiagnostics(quick);
+  if (asJson) {
+    console.log(JSON.stringify(diag, null, 2));
+  } else {
+    printDiagnostics(diag);
   }
 }
 
@@ -62,6 +312,7 @@ function cmdClearCache(): void {
 
 async function main(): Promise<void> {
   const command = process.argv[2];
+  const rest = process.argv.slice(3);
 
   if (!command || command === "--help" || command === "-h") {
     console.log(USAGE);
@@ -74,7 +325,8 @@ async function main(): Promise<void> {
         await cmdInstall();
         break;
       case "info":
-        cmdInfo();
+      case "doctor":
+        await cmdInfo(rest);
         break;
       case "update":
         await cmdUpdate();
@@ -94,4 +346,8 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+// Only run when invoked as the CLI entry point — not when imported by tests.
+const invokedPath = process.argv[1];
+if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href) {
+  main();
+}

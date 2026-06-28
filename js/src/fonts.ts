@@ -34,7 +34,7 @@ let fontWarningChecked = false;
  * null if it can't be determined (fc-list missing or errored). Callers must
  * NOT warn on null — only an explicit false means "no Windows fonts".
  */
-function windowsFontsPresent(): boolean | null {
+export function windowsFontsPresent(): boolean | null {
   let listing: string;
   try {
     // maxBuffer 16 MB: a host with a large font set can produce an fc-list

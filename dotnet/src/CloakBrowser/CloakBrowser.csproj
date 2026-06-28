@@ -44,6 +44,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="CloakBrowser.Tests" />
+    <InternalsVisibleTo Include="cloakbrowser-cli" />
   </ItemGroup>
 
 </Project>

@@ -8,6 +8,7 @@ Changes are tagged: **[wrapper]** for Python/JS wrapper, **[binary]** for Chromi
 
 ## [Unreleased]
 
+- **[wrapper]** **`info` is now a full diagnostics command** — it reports the binary that will actually launch given your license, runs a launch test (`chrome --version`, plus a missing-shared-library probe on Linux), validates the license key to show the real tier (`free`/`solo`/`team`/`business`, or `invalid`), and checks Windows-font availability (Linux), the GeoIP database, and optional dependencies. `--quick` skips the launch test; `--json` emits machine-readable output. Python, JS, and .NET.
 - **[wrapper]** One-time startup notice when spoofing the Windows platform on a Linux host without Windows fonts installed, with guidance to install them for best results. Best-effort and silent on error; suppress with `CLOAKBROWSER_SUPPRESS_FONT_WARNING=1`. Python, JS, and .NET.
 - **[wrapper]** The first-launch banner now re-shows to free users every 3 days (Pro users still see it once). Python, JS, and .NET.
 

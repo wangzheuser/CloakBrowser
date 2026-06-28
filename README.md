@@ -476,14 +476,16 @@ ctx = launch_persistent_context("./my-profile", headless=False)
 
 ### CLI
 
-Pre-download the binary or check installation status from the command line:
+Pre-download the binary, diagnose your setup, or manage the cache from the command line:
 
 ```bash
 python -m cloakbrowser install      # Download binary with progress output
-python -m cloakbrowser info         # Show version, path, platform
+python -m cloakbrowser info         # Diagnostics: binary that will launch, license tier, env checks
 python -m cloakbrowser update       # Check for and download newer binary
 python -m cloakbrowser clear-cache  # Remove cached binaries
 ```
+
+`info` reports the binary that will actually launch given your license, runs a quick launch test (and flags missing system libraries on Linux), shows your license tier, and checks fonts, GeoIP, and optional dependencies. Add `--quick` to skip the launch test or `--json` for machine-readable output. The same commands are available via `npx cloakbrowser <command>` (JS) and the `cloakbrowser` CLI (.NET).
 
 ### Utility Functions
 
