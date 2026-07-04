@@ -32,7 +32,8 @@ public static class CloakLauncher
 
         var combined = new List<string>(args ?? new List<string>());
         combined.AddRange(proxyResolution.ExtraArgs);
-        var chromeArgs = BuildArgs(options.StealthArgs, combined, timezone, locale, options.Headless, options.ExtensionPaths);
+        var chromeArgs = BuildArgs(options.StealthArgs, combined, timezone, locale, options.Headless, options.ExtensionPaths,
+            startMaximized: Config.BinarySupportsMaximizedWindow(options.LicenseKey, options.BrowserVersion));
         MaybeWarnWindowsFonts(chromeArgs);
 
         CloakLog.Debug($"Launching stealth Chromium (headless={options.Headless}, args={chromeArgs.Count})");
@@ -137,7 +138,9 @@ public static class CloakLauncher
 
         var combined = new List<string>(args ?? new List<string>());
         combined.AddRange(proxyResolution.ExtraArgs);
-        var chromeArgs = BuildArgs(options.StealthArgs, combined, timezone, locale, options.Headless, options.ExtensionPaths);
+        var chromeArgs = BuildArgs(options.StealthArgs, combined, timezone, locale, options.Headless, options.ExtensionPaths,
+            startMaximized: Config.BinarySupportsMaximizedWindow(options.LicenseKey, options.BrowserVersion)
+                && !options.NoViewport && options.Viewport == null);
         MaybeWarnWindowsFonts(chromeArgs);
 
         CloakLog.Debug($"Launching persistent stealth Chromium (headless={options.Headless}, user_data_dir={userDataDir})");
@@ -274,7 +277,8 @@ public static class CloakLauncher
         string? timezone = null,
         string? locale = null,
         bool headless = true,
-        List<string>? extensionPaths = null)
+        List<string>? extensionPaths = null,
+        bool startMaximized = false)
     {
         // Preserve insertion order while deduping by key.
         var seen = new Dictionary<string, string>();
@@ -320,6 +324,18 @@ public static class CloakLauncher
             string extVal = string.Join(",", absPaths);
             Set("--load-extension", $"--load-extension={extVal}");
             Set("--disable-extensions-except", $"--disable-extensions-except={extVal}");
+        }
+
+        // Open maximized (real Chrome overwhelmingly runs maximized) so the window
+        // fills the spoofed screen. Skipped if the caller chose a window geometry.
+        // Gated to binaries where this stays coherent (see BinarySupportsMaximizedWindow)
+        // — below the gate it would make outerWidth < innerWidth.
+        if (startMaximized
+            && !seen.ContainsKey("--start-maximized")
+            && !seen.ContainsKey("--window-size")
+            && !seen.ContainsKey("--window-position"))
+        {
+            Set("--start-maximized", "--start-maximized");
         }
 
         return order.Select(k => seen[k]).ToList();

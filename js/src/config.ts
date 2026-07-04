@@ -290,6 +290,22 @@ export function binarySupportsHeadlessNoViewport(
   }
 }
 
+/**
+ * Whether the wrapper may auto-add `--start-maximized`. Gated on the same
+ * threshold as the no_viewport shim: only binaries whose headless surface-fix +
+ * headed screen-clamp make a maximized window coherent (`outer == screen`).
+ * Below it, maximizing headless while the CDP viewport stays at 1280x720 yields
+ * `outerWidth < innerWidth` — a bot tell — so the flag must NOT be added. Shares
+ * HEADLESS_NO_VIEWPORT_MIN_VERSION; own name so the two can diverge later.
+ * Python, JS and .NET mirror this gate.
+ */
+export function binarySupportsMaximizedWindow(
+  licenseKey?: string,
+  browserVersion?: string,
+): boolean {
+  return binarySupportsHeadlessNoViewport(licenseKey, browserVersion);
+}
+
 // ---------------------------------------------------------------------------
 // Playwright default args to suppress — these leak automation signals.
 // --enable-automation: exposes navigator.webdriver = true

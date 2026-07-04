@@ -199,3 +199,34 @@ def test_resolve_webrtc_args_no_flag():
 
     result = _resolve_webrtc_args(["--no-sandbox"], "http://proxy:8080")
     assert result == ["--no-sandbox"]
+
+
+def test_start_maximized_injected_when_gated():
+    """start_maximized=True adds the flag."""
+    args = build_args(stealth_args=True, extra_args=None, start_maximized=True)
+    assert "--start-maximized" in args
+
+
+def test_start_maximized_absent_by_default():
+    """Default (gate off) does not add the flag."""
+    args = build_args(stealth_args=True, extra_args=None)
+    assert "--start-maximized" not in args
+    args = build_args(stealth_args=True, extra_args=None, start_maximized=False)
+    assert "--start-maximized" not in args
+
+
+def test_start_maximized_suppressed_by_user_window_size():
+    """A user --window-size means the user chose a geometry; don't also maximize."""
+    args = build_args(
+        stealth_args=True, extra_args=["--window-size=1000,800"], start_maximized=True
+    )
+    assert "--start-maximized" not in args
+    assert "--window-size=1000,800" in args
+
+
+def test_start_maximized_not_doubled():
+    """A user-supplied --start-maximized is not duplicated."""
+    args = build_args(
+        stealth_args=True, extra_args=["--start-maximized"], start_maximized=True
+    )
+    assert args.count("--start-maximized") == 1

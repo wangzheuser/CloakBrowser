@@ -426,4 +426,16 @@ public static class Config
             return false;
         }
     }
+
+    /// <summary>
+    /// Whether the wrapper may auto-add <c>--start-maximized</c>. Gated on the same
+    /// threshold as the no_viewport shim: only binaries whose headless surface-fix +
+    /// headed screen-clamp make a maximized window coherent (<c>outer == screen</c>).
+    /// Below it, maximizing headless while the CDP viewport stays at 1280x720 yields
+    /// <c>outerWidth &lt; innerWidth</c> — a bot tell — so the flag must NOT be added.
+    /// Shares <see cref="HeadlessNoViewportMinVersion"/>; own name so the two can
+    /// diverge later. Python, JS and .NET mirror this gate.
+    /// </summary>
+    public static bool BinarySupportsMaximizedWindow(string? licenseKey = null, string? browserVersion = null)
+        => BinarySupportsHeadlessNoViewport(licenseKey, browserVersion);
 }

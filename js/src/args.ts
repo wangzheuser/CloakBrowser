@@ -3,7 +3,7 @@
  */
 import path from "path";
 import type { LaunchOptions } from "./types.js";
-import { getDefaultStealthArgs } from "./config.js";
+import { getDefaultStealthArgs, binarySupportsMaximizedWindow } from "./config.js";
 
 const DEBUG = /\bcloakbrowser\b/.test(process.env.DEBUG ?? "");
 
@@ -65,6 +65,27 @@ export function buildArgs(options: LaunchOptions): string[] {
       "--disable-extensions-except",
       `--disable-extensions-except=${joined}`
     );
+  }
+
+  // Open maximized (real Chrome overwhelmingly runs maximized) so the window
+  // fills the spoofed screen. Skipped if the caller chose a window geometry or an
+  // explicit viewport (Playwright `viewport` / Puppeteer `defaultViewport`).
+  // Gated to binaries where this stays coherent (see binarySupportsMaximizedWindow)
+  // — below the gate it would make outerWidth < innerWidth.
+  // viewport lives on LaunchContextOptions; present at runtime for the
+  // persistent-context path, absent for plain launch. Read defensively.
+  const explicitViewport =
+    (options as { viewport?: unknown }).viewport !== undefined ||
+    options.launchOptions?.defaultViewport !== undefined;
+  const hasWindowFlag = ["--start-maximized", "--window-size", "--window-position"].some(
+    k => seen.has(k)
+  );
+  if (
+    !explicitViewport &&
+    !hasWindowFlag &&
+    binarySupportsMaximizedWindow(options.licenseKey, options.browserVersion)
+  ) {
+    seen.set("--start-maximized", "--start-maximized");
   }
   return [...seen.values()];
 }

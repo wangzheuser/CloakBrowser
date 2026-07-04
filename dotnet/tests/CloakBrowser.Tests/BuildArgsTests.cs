@@ -73,4 +73,39 @@ public class BuildArgsTests
         Assert.DoesNotContain(args, a => a.StartsWith("--lang="));
         Assert.DoesNotContain(args, a => a.StartsWith("--fingerprint-timezone="));
     }
+
+    [Fact]
+    public void StartMaximized_True_AddsFlag()
+    {
+        var args = CloakLauncher.BuildArgs(stealthArgs: true, extraArgs: null, startMaximized: true);
+        Assert.Contains("--start-maximized", args);
+    }
+
+    [Fact]
+    public void StartMaximized_DefaultOff_NoFlag()
+    {
+        var args = CloakLauncher.BuildArgs(stealthArgs: true, extraArgs: null);
+        Assert.DoesNotContain("--start-maximized", args);
+    }
+
+    [Fact]
+    public void StartMaximized_SuppressedByUserWindowSize()
+    {
+        var args = CloakLauncher.BuildArgs(
+            stealthArgs: true,
+            extraArgs: new List<string> { "--window-size=1000,800" },
+            startMaximized: true);
+        Assert.DoesNotContain("--start-maximized", args);
+        Assert.Contains("--window-size=1000,800", args);
+    }
+
+    [Fact]
+    public void StartMaximized_NotDoubled()
+    {
+        var args = CloakLauncher.BuildArgs(
+            stealthArgs: true,
+            extraArgs: new List<string> { "--start-maximized" },
+            startMaximized: true);
+        Assert.Single(args, a => a == "--start-maximized");
+    }
 }

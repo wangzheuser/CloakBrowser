@@ -238,3 +238,28 @@ public class HeadlessNoViewportGateTests
         }
     }
 }
+
+/// <summary>
+/// BinarySupportsMaximizedWindow() — parity-critical: Python and JS mirror this gate.
+/// Shares the no_viewport threshold today.
+/// </summary>
+public class MaximizedWindowGateTests
+{
+    [Fact]
+    public void DeclaredBelowThreshold_Off()
+    {
+        Assert.False(Config.BinarySupportsMaximizedWindow(browserVersion: "148.0.7778.215.3"));
+    }
+
+    [Fact]
+    public void DeclaredAtThreshold_On()
+    {
+        Assert.True(Config.BinarySupportsMaximizedWindow(browserVersion: "148.0.7778.215.4"));
+    }
+
+    [Fact]
+    public void DeclaredAboveThreshold_On()
+    {
+        Assert.True(Config.BinarySupportsMaximizedWindow(browserVersion: "149.0.0.0"));
+    }
+}

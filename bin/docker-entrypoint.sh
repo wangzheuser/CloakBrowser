@@ -11,6 +11,11 @@ rm -f /tmp/.X99-lock /tmp/.X11-unix/X99
 Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp &
 sleep 1
 
+# Window manager so headed --start-maximized is honored (bare Xvfb has no WM;
+# without one the flag is a silent no-op and the window stays un-maximized).
+DISPLAY=:99 openbox &
+sleep 1
+
 # Opt-in: fetch the Widevine CDM so persistent contexts present as a real
 # Chrome (a DRM/EME probe is used by some bot detectors). Off by default — only
 # runs when CLOAKBROWSER_FETCH_WIDEVINE is set, and never if the user already

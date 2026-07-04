@@ -24,6 +24,7 @@ from .config import (
     DEFAULT_VIEWPORT,
     IGNORE_DEFAULT_ARGS,
     binary_supports_headless_no_viewport,
+    binary_supports_maximized_window,
     get_default_stealth_args,
     normalize_requested_version,
 )
@@ -210,7 +211,7 @@ def launch(
         args = list(args or [])
         args.append(f"--fingerprint-webrtc-ip={exit_ip}")
 
-    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths)
+    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths, start_maximized=binary_supports_maximized_window(license_key, browser_version))
     _maybe_warn_windows_fonts(chrome_args)
 
     logger.debug("Launching stealth Chromium (headless=%s, args=%d)", headless, len(chrome_args))
@@ -316,7 +317,7 @@ async def launch_async(  # noqa: C901
     if exit_ip and not (args and any(a.startswith("--fingerprint-webrtc-ip") for a in args)):
         args = list(args or [])
         args.append(f"--fingerprint-webrtc-ip={exit_ip}")
-    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths)
+    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths, start_maximized=binary_supports_maximized_window(license_key, browser_version))
     _maybe_warn_windows_fonts(chrome_args)
 
     logger.debug("Launching stealth Chromium async (headless=%s, args=%d)", headless, len(chrome_args))
@@ -434,7 +435,7 @@ def launch_persistent_context(
     if exit_ip and not (args and any(a.startswith("--fingerprint-webrtc-ip") for a in args)):
         args = list(args or [])
         args.append(f"--fingerprint-webrtc-ip={exit_ip}")
-    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths)
+    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths, start_maximized=binary_supports_maximized_window(license_key, browser_version) and viewport is _VIEWPORT_UNSET and "viewport" not in kwargs and "no_viewport" not in kwargs)
     _maybe_warn_windows_fonts(chrome_args)
 
     logger.debug(
@@ -573,7 +574,7 @@ async def launch_persistent_context_async(
     if exit_ip and not (args and any(a.startswith("--fingerprint-webrtc-ip") for a in args)):
         args = list(args or [])
         args.append(f"--fingerprint-webrtc-ip={exit_ip}")
-    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths)
+    chrome_args = build_args(stealth_args, (args or []) + proxy_extra_args, timezone=timezone, locale=locale, headless=headless, extension_paths=extension_paths, start_maximized=binary_supports_maximized_window(license_key, browser_version) and viewport is _VIEWPORT_UNSET and "viewport" not in kwargs and "no_viewport" not in kwargs)
     _maybe_warn_windows_fonts(chrome_args)
 
     logger.debug(
@@ -1079,6 +1080,7 @@ def build_args(
     locale: str | None = None,
     headless: bool = True,
     extension_paths: list[str] | None = None,
+    start_maximized: bool = False,
 ) -> list[str]:
     """Combine stealth args with user-provided args and locale flags.
 
@@ -1125,11 +1127,21 @@ def build_args(
     if extension_paths:
         abs_paths = [os.path.abspath(p) for p in extension_paths]
         ext_val = ",".join(abs_paths)
-    
+
         seen["--load-extension"] = f"--load-extension={ext_val}"
         seen["--disable-extensions-except"] = (
             f"--disable-extensions-except={ext_val}"
         )
+
+    # Open maximized (real Windows Chrome overwhelmingly runs maximized) so the
+    # window fills the spoofed screen. Skipped if the caller already chose a
+    # window geometry. Gated to binaries where this stays coherent (see
+    # binary_supports_maximized_window) — below the gate it would create
+    # outerWidth < innerWidth.
+    if start_maximized and not any(
+        k in seen for k in ("--start-maximized", "--window-size", "--window-position")
+    ):
+        seen["--start-maximized"] = "--start-maximized"
 
     return list(seen.values())
 

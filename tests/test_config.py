@@ -7,6 +7,7 @@ import pytest
 
 from cloakbrowser.config import (
     binary_supports_headless_no_viewport,
+    binary_supports_maximized_window,
     get_archive_ext,
     get_archive_name,
     get_binary_path,
@@ -215,3 +216,25 @@ class TestHeadlessNoViewportGate:
             os.environ.pop("CLOAKBROWSER_LICENSE_KEY", None)
             os.environ.pop("CLOAKBROWSER_VERSION", None)
             assert binary_supports_headless_no_viewport() is False
+
+
+class TestMaximizedWindowGate:
+    """binary_supports_maximized_window() — parity-critical: JS and .NET mirror this.
+
+    Shares HEADLESS_NO_VIEWPORT_MIN_VERSION today, so it tracks the same threshold
+    as the no_viewport gate: below it, auto --start-maximized would make headless
+    report outerWidth < innerWidth (a bot tell), so the flag must stay off.
+    """
+
+    def test_declared_below_threshold_off(self):
+        assert binary_supports_maximized_window(browser_version="148.0.7778.215.3") is False
+
+    def test_declared_at_threshold_on(self):
+        assert binary_supports_maximized_window(browser_version="148.0.7778.215.4") is True
+
+    def test_declared_above_threshold_on(self):
+        assert binary_supports_maximized_window(browser_version="149.0.0.0") is True
+
+    def test_local_override_without_declared_off(self):
+        with patch.dict(os.environ, {"CLOAKBROWSER_BINARY_PATH": "/fake/chrome"}):
+            assert binary_supports_maximized_window() is False

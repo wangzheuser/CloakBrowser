@@ -336,3 +336,19 @@ def binary_supports_headless_no_viewport(
         return not _version_newer(HEADLESS_NO_VIEWPORT_MIN_VERSION, version)
     except (ValueError, AttributeError):
         return False
+
+
+def binary_supports_maximized_window(
+    license_key: str | None = None, browser_version: str | None = None
+) -> bool:
+    """Whether the wrapper may auto-add ``--start-maximized``.
+
+    Gated on the same threshold as the no_viewport shim: only binaries whose
+    headless surface-fix + headed screen-clamp make a maximized window coherent
+    (``outer == screen``). Below it, maximizing headless while the CDP viewport
+    stays at 1280x720 yields ``outerWidth < innerWidth`` — an impossible-window
+    bot tell — so the flag must NOT be added. Shares
+    ``HEADLESS_NO_VIEWPORT_MIN_VERSION``; kept as its own name so the two can
+    diverge later. Python, JS and .NET mirror this gate.
+    """
+    return binary_supports_headless_no_viewport(license_key, browser_version)

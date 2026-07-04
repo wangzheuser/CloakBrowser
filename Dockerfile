@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 libxss1 libxtst6 fonts-liberation \
     fonts-noto-color-emoji fonts-unifont fonts-freefont-ttf \
     fonts-ipafont-gothic fonts-wqy-zenhei fonts-tlwg-loma-otf \
-    xvfb xdotool \
+    xvfb xdotool openbox \
     curl ca-certificates \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
